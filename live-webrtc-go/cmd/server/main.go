@@ -11,6 +11,7 @@ import (
 	"live-webrtc-go/internal/config"
 	"live-webrtc-go/internal/api"
 	"live-webrtc-go/internal/sfu"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //go:embed web
@@ -51,6 +52,11 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	mux.Handle("/metrics", promhttp.Handler())
+
+	// Recorded files
+	mux.Handle("/records/", http.StripPrefix("/records/", http.FileServer(http.Dir(cfg.RecordDir))))
+
 	// Static files (embedded)
 	staticFS, _ := fs.Sub(webFS, "web")
 	mux.Handle("/web/", http.StripPrefix("/web/", http.FileServer(http.FS(staticFS))))
@@ -65,6 +71,12 @@ func main() {
 	addr := cfg.HTTPAddr
 	fmt.Printf("Live WebRTC server listening on %s\n", addr)
 	fmt.Println("Open http://localhost:8080/web/publisher.html and http://localhost:8080/web/player.html")
+	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+		if err := http.ListenAndServeTLS(addr, cfg.TLSCertFile, cfg.TLSKeyFile, mux); err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	if err := http.ListenAndServe(addr, mux); err != nil {
 		log.Fatal(err)
 	}

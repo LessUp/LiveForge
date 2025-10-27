@@ -6,11 +6,16 @@ import (
 	"fmt"
 	"sync"
 	"time"
+	"os"
+	"path/filepath"
 
 	"live-webrtc-go/internal/config"
+	"live-webrtc-go/internal/metrics"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
+	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
+	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
 )
 
 type Manager struct {
@@ -30,6 +35,7 @@ func (m *Manager) getOrCreateRoom(name string) *Room {
 	if !ok {
 		r = NewRoom(name, m)
 		m.rooms[name] = r
+		metrics.SetRooms(float64(len(m.rooms)))
 	}
 	return r
 }
@@ -86,7 +92,13 @@ func (r *Room) iceConfig() webrtc.Configuration {
 			servers = append(servers, webrtc.ICEServer{URLs: r.mgr.cfg.STUN})
 		}
 		if len(r.mgr.cfg.TURN) > 0 {
-			servers = append(servers, webrtc.ICEServer{URLs: r.mgr.cfg.TURN})
+			s := webrtc.ICEServer{URLs: r.mgr.cfg.TURN}
+			if r.mgr.cfg.TURNUsername != "" || r.mgr.cfg.TURNPassword != "" {
+				s.Username = r.mgr.cfg.TURNUsername
+				s.Credential = r.mgr.cfg.TURNPassword
+				s.CredentialType = webrtc.ICECredentialTypePassword
+			}
+			servers = append(servers, s)
 		}
 	}
 	if len(servers) == 0 {
@@ -125,7 +137,7 @@ func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 	})
 
 	pc.OnTrack(func(remote *webrtc.TrackRemote, receiver *webrtc.RTPReceiver) {
-		feed := newTrackFanout(remote)
+		feed := newTrackFanout(remote, r.name)
 		r.mu.Lock()
 		r.trackFeeds[remote.ID()] = feed
 		// attach existing subscribers
@@ -149,6 +161,24 @@ func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 				_ = pub.WriteRTCP([]rtcp.Packet{&rtcp.PictureLossIndication{MediaSSRC: uint32(remote.SSRC())}})
 			}
 		}()
+
+		if r.mgr != nil && r.mgr.cfg != nil && r.mgr.cfg.RecordEnabled {
+			_ = os.MkdirAll(r.mgr.cfg.RecordDir, 0o755)
+			base := fmt.Sprintf("%s_%s_%d", r.name, remote.ID(), time.Now().Unix())
+			mime := remote.Codec().MimeType
+			switch {
+			case mime == webrtc.MimeTypeOpus:
+				p := filepath.Join(r.mgr.cfg.RecordDir, base+".ogg")
+				if w, err := oggwriter.New(p, 48000, 2); err == nil {
+					feed.setRecorder(w)
+				}
+			case mime == webrtc.MimeTypeVP8 || mime == webrtc.MimeTypeVP9:
+				p := filepath.Join(r.mgr.cfg.RecordDir, base+".ivf")
+				if w, err := ivfwriter.New(p); err == nil {
+					feed.setRecorder(w)
+				}
+			}
+		}
 	})
 
 	if err := pc.SetRemoteDescription(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offerSDP}); err != nil {
@@ -175,6 +205,14 @@ func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 }
 
 func (r *Room) Subscribe(ctx context.Context, offerSDP string) (string, error) {
+	if r.mgr != nil && r.mgr.cfg != nil && r.mgr.cfg.MaxSubsPerRoom > 0 {
+		r.mu.RLock()
+		if len(r.subs) >= r.mgr.cfg.MaxSubsPerRoom {
+			r.mu.RUnlock()
+			return "", fmt.Errorf("subscriber limit reached")
+		}
+		r.mu.RUnlock()
+	}
 	m := &webrtc.MediaEngine{}
 	if err := m.PopulateFromSDP(webrtc.SessionDescription{Type: webrtc.SDPTypeOffer, SDP: offerSDP}); err != nil {
 		return "", fmt.Errorf("populate from SDP: %w", err)
@@ -222,6 +260,7 @@ func (r *Room) Subscribe(ctx context.Context, offerSDP string) (string, error) {
 	r.mu.Lock()
 	r.subs[pc] = struct{}{}
 	r.mu.Unlock()
+	metrics.IncSubscribers(r.name)
 
 	return pc.LocalDescription().SDP, nil
 }
@@ -249,6 +288,7 @@ func (r *Room) removeSubscriber(pc *webrtc.PeerConnection) {
 	}
 	r.mu.Unlock()
 	_ = pc.Close()
+	metrics.DecSubscribers(r.name)
 }
 
 type trackFanout struct {
@@ -257,14 +297,28 @@ type trackFanout struct {
 	// per-subscriber local tracks
 	locals map[*webrtc.PeerConnection]*webrtc.TrackLocalStaticRTP
 	closed chan struct{}
+	room   string
+	rec    rtpWriter
 }
 
-func newTrackFanout(remote *webrtc.TrackRemote) *trackFanout {
+func newTrackFanout(remote *webrtc.TrackRemote, room string) *trackFanout {
 	return &trackFanout{
 		remote: remote,
 		locals: make(map[*webrtc.PeerConnection]*webrtc.TrackLocalStaticRTP),
 		closed: make(chan struct{}),
+		room:   room,
 	}
+}
+
+type rtpWriter interface {
+	WriteRTP(*rtp.Packet) error
+	Close() error
+}
+
+func (f *trackFanout) setRecorder(w rtpWriter) {
+	f.mu.Lock()
+	f.rec = w
+	f.mu.Unlock()
 }
 
 func (f *trackFanout) attachToSubscriber(pc *webrtc.PeerConnection) {
@@ -304,6 +358,12 @@ func (f *trackFanout) close() {
 	default:
 		close(f.closed)
 	}
+	f.mu.Lock()
+	if f.rec != nil {
+		_ = f.rec.Close()
+		f.rec = nil
+	}
+	f.mu.Unlock()
 }
 
 func (f *trackFanout) readLoop() {
@@ -318,9 +378,17 @@ func (f *trackFanout) readLoop() {
 		if err != nil {
 			return
 		}
+		metrics.AddBytes(f.room, n)
+		metrics.IncPackets(f.room)
 		pkt := &rtp.Packet{}
 		if err := pkt.Unmarshal(buf[:n]); err != nil {
 			continue
+		}
+		f.mu.RLock()
+		rec := f.rec
+		f.mu.RUnlock()
+		if rec != nil {
+			_ = rec.WriteRTP(pkt)
 		}
 		f.mu.RLock()
 		for _, local := range f.locals {

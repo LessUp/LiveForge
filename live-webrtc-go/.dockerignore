@@ -1,0 +1,14 @@
+**/.git
+**/.gitignore
+**/.gitattributes
+**/.vscode
+**/.idea
+**/bin
+**/build
+**/*.log
+**/*.out
+**/*.cover
+**/coverage
+**/vendor
+**/records
+**/.env*

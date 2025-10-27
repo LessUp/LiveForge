@@ -47,7 +47,7 @@ func (h *HTTPHandlers) ServeWHIPPublish(w http.ResponseWriter, r *http.Request, 
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
         return
     }
-    if !h.authOK(r) {
+    if !h.authOKRoom(r, room) {
         http.Error(w, "unauthorized", http.StatusUnauthorized)
         return
     }
@@ -74,7 +74,7 @@ func (h *HTTPHandlers) ServeWHEPPlay(w http.ResponseWriter, r *http.Request, roo
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
         return
     }
-    if !h.authOK(r) {
+    if !h.authOKRoom(r, room) {
         http.Error(w, "unauthorized", http.StatusUnauthorized)
         return
     }
@@ -104,16 +104,24 @@ func (h *HTTPHandlers) allowCORS(w http.ResponseWriter, r *http.Request) {
     w.Header().Set("Access-Control-Allow-Credentials", "true")
 }
 
-func (h *HTTPHandlers) authOK(r *http.Request) bool {
+func (h *HTTPHandlers) authOKRoom(r *http.Request, room string) bool {
+    // room-specific token overrides global config if set
+    if tok, ok := h.cfg.RoomTokens[room]; ok && tok != "" {
+        return tokenMatch(r, tok)
+    }
     if h.cfg.AuthToken == "" {
         return true
     }
+    return tokenMatch(r, h.cfg.AuthToken)
+}
+
+func tokenMatch(r *http.Request, expect string) bool {
     if t := r.Header.Get("X-Auth-Token"); t != "" {
-        return t == h.cfg.AuthToken
+        return t == expect
     }
     auth := r.Header.Get("Authorization")
     if strings.HasPrefix(strings.ToLower(auth), "bearer ") {
-        return strings.TrimSpace(auth[7:]) == h.cfg.AuthToken
+        return strings.TrimSpace(auth[7:]) == expect
     }
     return false
 }

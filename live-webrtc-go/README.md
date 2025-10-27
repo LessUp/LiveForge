@@ -10,7 +10,10 @@
 - **房间状态查询**：`GET /api/rooms` 返回在线房间、发布者与订阅者统计。
 - **健康检查**：`GET /healthz`，便于部署活性探测。
 - **内嵌前端**：简单的推流/播放页面，支持输入房间与 Token。
-- **部署友好**：`ALLOWED_ORIGIN`、`STUN_URLS`、`TURN_URLS`、`HTTP_ADDR` 等均可通过环境变量配置。
+- **部署友好**：通过环境变量配置 CORS、STUN/TURN、TLS、订阅上限、按房间 Token 等。
+- **录制能力**：可选将 VP8/VP9 保存为 IVF、Opus 保存为 OGG（开启 `RECORD_ENABLED=1`）。
+- **监控指标**：`GET /metrics` 暴露 Prometheus 指标（RTP 字节/包、订阅者数、房间数）。
+- **容器化**：提供 Dockerfile 与示例 docker-compose.yml，支持挂载录制目录。
 
 ## 快速开始
 
@@ -30,6 +33,8 @@
 - 播放页：http://localhost:8080/web/player.html
 - 房间列表：http://localhost:8080/api/rooms
 - 健康检查：http://localhost:8080/healthz
+- 指标监控：http://localhost:8080/metrics
+- 录制访问：http://localhost:8080/records/
 
 > 请允许浏览器使用麦克风/摄像头。若启用 `AUTH_TOKEN`，在页面的 Token 输入框填写相同值。
 
@@ -62,9 +67,17 @@ X-Auth-Token: <token>
 |------|--------|------|
 | `HTTP_ADDR` | `:8080` | HTTP 服务监听地址 |
 | `ALLOWED_ORIGIN` | `*` | CORS 允许的 Origin，生产环境建议填写具体域名 |
-| `AUTH_TOKEN` | _(空)_ | 开启鉴权时填写 Token |
+| `AUTH_TOKEN` | _(空)_ | 全局 Token（可被房间级 Token 覆盖） |
+| `ROOM_TOKENS` | _(空)_ | 房间级 Token，格式 `room1:tok1;room2:tok2` |
 | `STUN_URLS` | `stun:stun.l.google.com:19302` | 逗号分隔的 STUN 服务器列表 |
 | `TURN_URLS` | _(空)_ | 逗号分隔的 TURN 服务器列表（生产环境推荐配置） |
+| `TURN_USERNAME` | _(空)_ | TURN 用户名（与 TURN_URLS 配合） |
+| `TURN_PASSWORD` | _(空)_ | TURN 密码（与 TURN_URLS 配合） |
+| `TLS_CERT_FILE` | _(空)_ | 启用 TLS 时的证书路径（配合 `TLS_KEY_FILE`） |
+| `TLS_KEY_FILE` | _(空)_ | 启用 TLS 时的私钥路径 |
+| `RECORD_ENABLED` | `0` | 设置为 `1` 启用录制功能 |
+| `RECORD_DIR` | `records` | 录制文件保存目录（也用于 `/records/` 静态访问） |
+| `MAX_SUBS_PER_ROOM` | `0` | 每房间订阅者上限，`0` 表示不限制 |
 
 ## 项目结构
 
@@ -73,6 +86,7 @@ X-Auth-Token: <token>
 │   └── web              # 嵌入式静态页面
 ├── internal/api         # HTTP handlers (WHIP/WHEP/Rooms)
 ├── internal/config      # 配置加载
+├── internal/metrics     # Prometheus 指标
 ├── internal/sfu         # WebRTC SFU 管理逻辑
 ├── go.mod / go.sum
 ├── .gitignore / .gitattributes
@@ -83,8 +97,33 @@ X-Auth-Token: <token>
 
 1. **HTTPS / TLS**：浏览器 WebRTC 通常要求 HTTPS，生产部署可使用反向代理（Nginx/Caddy）或自签证书调试。
 2. **TURN 服务**：网络环境受限时需要 TURN 中继，可搭配 coturn。
-3. **容器化**：可根据需要补充 `Dockerfile` 与 CI/CD。
+3. **容器化**：提供 `Dockerfile` 与 `docker-compose.yml`，支持挂载录制目录与配置环境变量。
 4. **监控日志**：集成 Prometheus、OpenTelemetry 或外部日志系统以便运维。
+
+## 容器化部署
+
+构建镜像：
+
+```bash
+docker build -t live-webrtc-go:latest .
+```
+
+快速运行（挂载录制目录，开启录制与公开端口）：
+
+```bash
+docker run --rm -p 8080:8080 \
+  -e RECORD_ENABLED=1 \
+  -e RECORD_DIR=/records \
+  -e STUN_URLS=stun:stun.l.google.com:19302 \
+  -v "$PWD/records:/records" \
+  live-webrtc-go:latest
+```
+
+使用 Compose：
+
+```bash
+docker compose up -d
+```
 
 ## 后续开发路线
 

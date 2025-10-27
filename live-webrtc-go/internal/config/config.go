@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"strings"
+	"strconv"
 )
 
 type Config struct {
@@ -11,6 +12,14 @@ type Config struct {
 	AuthToken     string
 	STUN          []string
 	TURN          []string
+	TLSCertFile   string
+	TLSKeyFile    string
+	RecordEnabled bool
+	RecordDir     string
+	MaxSubsPerRoom int
+	RoomTokens    map[string]string
+	TURNUsername  string
+	TURNPassword  string
 }
 
 func Load() *Config {
@@ -26,6 +35,22 @@ func Load() *Config {
 	}
 	if v := os.Getenv("TURN_URLS"); v != "" {
 		c.TURN = splitCSV(v)
+	}
+	c.TURNUsername = getEnv("TURN_USERNAME", "")
+	c.TURNPassword = getEnv("TURN_PASSWORD", "")
+	c.TLSCertFile = getEnv("TLS_CERT_FILE", "")
+	c.TLSKeyFile = getEnv("TLS_KEY_FILE", "")
+	c.RecordEnabled = getEnv("RECORD_ENABLED", "") == "1"
+	c.RecordDir = getEnv("RECORD_DIR", "records")
+	if v := getEnv("MAX_SUBS_PER_ROOM", "0"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.MaxSubsPerRoom = n
+		}
+	}
+	if v := os.Getenv("ROOM_TOKENS"); v != "" {
+		c.RoomTokens = parseRoomTokens(v)
+	} else {
+		c.RoomTokens = map[string]string{}
 	}
 	return c
 }
@@ -47,4 +72,21 @@ func splitCSV(s string) []string {
 		}
 	}
 	return out
+}
+
+func parseRoomTokens(s string) map[string]string {
+	m := map[string]string{}
+	items := strings.Split(s, ";")
+	for _, it := range items {
+		it = strings.TrimSpace(it)
+		if it == "" { continue }
+		kv := strings.SplitN(it, ":", 2)
+		if len(kv) != 2 { continue }
+		k := strings.TrimSpace(kv[0])
+		v := strings.TrimSpace(kv[1])
+		if k != "" && v != "" {
+			m[k] = v
+		}
+	}
+	return m
 }
