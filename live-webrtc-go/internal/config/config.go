@@ -20,6 +20,16 @@ type Config struct {
 	RoomTokens    map[string]string
 	TURNUsername  string
 	TURNPassword  string
+	UploadEnabled bool
+	DeleteAfterUpload bool
+	S3Endpoint   string
+	S3Region     string
+	S3Bucket     string
+	S3AccessKey  string
+	S3SecretKey  string
+	S3UseSSL     bool
+	S3PathStyle  bool
+	S3Prefix     string
 }
 
 func Load() *Config {
@@ -52,6 +62,16 @@ func Load() *Config {
 	} else {
 		c.RoomTokens = map[string]string{}
 	}
+	c.UploadEnabled = getEnv("UPLOAD_RECORDINGS", "") == "1"
+	c.DeleteAfterUpload = getEnv("DELETE_RECORDING_AFTER_UPLOAD", "") == "1"
+	c.S3Endpoint = getEnv("S3_ENDPOINT", "")
+	c.S3Region = getEnv("S3_REGION", "")
+	c.S3Bucket = getEnv("S3_BUCKET", "")
+	c.S3AccessKey = getEnv("S3_ACCESS_KEY", "")
+	c.S3SecretKey = getEnv("S3_SECRET_KEY", "")
+	c.S3UseSSL = getEnv("S3_USE_SSL", "1") == "1"
+	c.S3PathStyle = getEnv("S3_PATH_STYLE", "") == "1"
+	c.S3Prefix = getEnv("S3_PREFIX", "")
 	return c
 }
 

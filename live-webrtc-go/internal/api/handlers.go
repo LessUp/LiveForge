@@ -3,9 +3,12 @@ package api
 import (
     "encoding/json"
     "io"
+    "os"
+    "path/filepath"
     "net"
     "net/http"
     "strings"
+    "time"
 
     "live-webrtc-go/internal/config"
     "live-webrtc-go/internal/sfu"
@@ -139,4 +142,45 @@ func hostMatch(expect, origin string) bool {
         host = u
     }
     return host == expect || origin == expect
+}
+
+func (h *HTTPHandlers) ServeRecordsList(w http.ResponseWriter, r *http.Request) {
+    h.allowCORS(w, r)
+    if r.Method == http.MethodOptions {
+        w.WriteHeader(http.StatusNoContent)
+        return
+    }
+    if r.Method != http.MethodGet {
+        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    dir := h.cfg.RecordDir
+    entries, err := os.ReadDir(dir)
+    if err != nil {
+        http.Error(w, err.Error(), http.StatusInternalServerError)
+        return
+    }
+    type rec struct {
+        Name    string `json:"name"`
+        Size    int64  `json:"size"`
+        ModTime string `json:"modTime"`
+        URL     string `json:"url"`
+    }
+    var list []rec
+    for _, e := range entries {
+        if e.IsDir() { continue }
+        name := e.Name()
+        ext := strings.ToLower(filepath.Ext(name))
+        if ext != ".ivf" && ext != ".ogg" { continue }
+        fi, err := e.Info()
+        if err != nil { continue }
+        list = append(list, rec{
+            Name: name,
+            Size: fi.Size(),
+            ModTime: fi.ModTime().UTC().Format(time.RFC3339),
+            URL: "/records/" + name,
+        })
+    }
+    w.Header().Set("Content-Type", "application/json")
+    _ = json.NewEncoder(w).Encode(list)
 }

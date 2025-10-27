@@ -11,6 +11,7 @@ import (
 
 	"live-webrtc-go/internal/config"
 	"live-webrtc-go/internal/metrics"
+	"live-webrtc-go/internal/uploader"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
@@ -170,12 +171,12 @@ func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 			case mime == webrtc.MimeTypeOpus:
 				p := filepath.Join(r.mgr.cfg.RecordDir, base+".ogg")
 				if w, err := oggwriter.New(p, 48000, 2); err == nil {
-					feed.setRecorder(w)
+					feed.setRecorder(w, p)
 				}
 			case mime == webrtc.MimeTypeVP8 || mime == webrtc.MimeTypeVP9:
 				p := filepath.Join(r.mgr.cfg.RecordDir, base+".ivf")
 				if w, err := ivfwriter.New(p); err == nil {
-					feed.setRecorder(w)
+					feed.setRecorder(w, p)
 				}
 			}
 		}
@@ -299,6 +300,7 @@ type trackFanout struct {
 	closed chan struct{}
 	room   string
 	rec    rtpWriter
+	recPath string
 }
 
 func newTrackFanout(remote *webrtc.TrackRemote, room string) *trackFanout {
@@ -315,9 +317,10 @@ type rtpWriter interface {
 	Close() error
 }
 
-func (f *trackFanout) setRecorder(w rtpWriter) {
+func (f *trackFanout) setRecorder(w rtpWriter, path string) {
 	f.mu.Lock()
 	f.rec = w
+	f.recPath = path
 	f.mu.Unlock()
 }
 
@@ -361,7 +364,11 @@ func (f *trackFanout) close() {
 	f.mu.Lock()
 	if f.rec != nil {
 		_ = f.rec.Close()
+		if f.recPath != "" {
+			go func(p string) { _ = uploader.Upload(context.Background(), p) }(f.recPath)
+		}
 		f.rec = nil
+		f.recPath = ""
 	}
 	f.mu.Unlock()
 }

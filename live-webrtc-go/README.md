@@ -45,6 +45,7 @@
 | `POST` | `/api/whip/publish/{room}` | 接受 SDP Offer，返回 SDP Answer，建立推流连接 |
 | `POST` | `/api/whep/play/{room}` | 接受 SDP Offer，返回 SDP Answer，建立播放连接 |
 | `GET` | `/api/rooms` | 返回房间列表与在线状态 |
+| `GET` | `/api/records` | 返回录制文件列表（名称/大小/时间/URL） |
 | `GET` | `/healthz` | 健康检查 |
 
 ### 鉴权
@@ -78,6 +79,16 @@ X-Auth-Token: <token>
 | `RECORD_ENABLED` | `0` | 设置为 `1` 启用录制功能 |
 | `RECORD_DIR` | `records` | 录制文件保存目录（也用于 `/records/` 静态访问） |
 | `MAX_SUBS_PER_ROOM` | `0` | 每房间订阅者上限，`0` 表示不限制 |
+| `UPLOAD_RECORDINGS` | `0` | 设置为 `1` 启用录制文件上传 |
+| `DELETE_RECORDING_AFTER_UPLOAD` | `0` | 设置为 `1` 上传成功后删除本地录制 |
+| `S3_ENDPOINT` | _(空)_ | S3/MinIO 端点，如 `127.0.0.1:9000` 或 `s3.amazonaws.com` |
+| `S3_REGION` | _(空)_ | 区域（AWS 需要），MinIO 可留空 |
+| `S3_BUCKET` | _(空)_ | 目标桶名 |
+| `S3_ACCESS_KEY` | _(空)_ | 访问 Key |
+| `S3_SECRET_KEY` | _(空)_ | 访问 Secret |
+| `S3_USE_SSL` | `1` | 是否使用 SSL（`1`/`0`） |
+| `S3_PATH_STYLE` | `0` | 是否启用 Path-Style（MinIO 通常为 `1`） |
+| `S3_PREFIX` | _(空)_ | 上传时的对象前缀，可为空 |
 
 ## 项目结构
 

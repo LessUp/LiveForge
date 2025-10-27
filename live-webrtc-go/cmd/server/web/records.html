@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Recordings</title>
+  <style>
+    body { font-family: system-ui, Segoe UI, Arial, sans-serif; margin: 24px; }
+    table { border-collapse: collapse; width: 100%; max-width: 960px; }
+    th, td { border: 1px solid #ddd; padding: 8px; }
+    th { background: #f3f3f3; }
+    a { color: #0a58ca; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <h1>录制文件列表</h1>
+  <p><a href="/web/index.html">返回首页</a></p>
+  <table>
+    <thead>
+      <tr>
+        <th>文件名</th>
+        <th>大小</th>
+        <th>修改时间</th>
+        <th>下载</th>
+      </tr>
+    </thead>
+    <tbody id="rows"></tbody>
+  </table>
+
+  <script>
+    function humanSize(n) {
+      const units = ['B','KB','MB','GB'];
+      let i = 0; let v = n;
+      while (v >= 1024 && i < units.length-1) { v/=1024; i++; }
+      return v.toFixed(1) + ' ' + units[i];
+    }
+    async function load() {
+      const resp = await fetch('/api/records');
+      const data = await resp.json();
+      const tbody = document.getElementById('rows');
+      tbody.innerHTML = '';
+      for (const it of data) {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td>${it.name}</td>
+          <td>${humanSize(it.size)}</td>
+          <td>${it.modTime}</td>
+          <td><a href="${it.url}" download>下载</a></td>
+        `;
+        tbody.appendChild(tr);
+      }
+    }
+    load();
+  </script>
+</body>
+</html>

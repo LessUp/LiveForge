@@ -11,6 +11,7 @@ import (
 	"live-webrtc-go/internal/config"
 	"live-webrtc-go/internal/api"
 	"live-webrtc-go/internal/sfu"
+	"live-webrtc-go/internal/uploader"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -19,6 +20,7 @@ var webFS embed.FS
 
 func main() {
 	cfg := config.Load()
+	_ = uploader.Init(cfg)
 	mgr := sfu.NewManager(cfg)
 	h := api.NewHTTPHandlers(mgr, cfg)
 
@@ -45,6 +47,7 @@ func main() {
 
 	// Rooms list
 	mux.HandleFunc("/api/rooms", h.ServeRooms)
+	mux.HandleFunc("/api/records", h.ServeRecordsList)
 
 	// Health check
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
