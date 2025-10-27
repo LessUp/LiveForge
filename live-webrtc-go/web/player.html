@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Player</title>
+  <style>
+    body { font-family: system-ui, Segoe UI, Arial, sans-serif; margin: 24px; }
+    video { width: 60vw; max-width: 960px; background: #000; }
+    label { display: inline-block; min-width: 80px; }
+  </style>
+</head>
+<body>
+  <h1>播放（Player）</h1>
+  <div>
+    <label>房间:</label>
+    <input id="room" value="demo" />
+    <button id="play">开始播放</button>
+  </div>
+  <p id="log"></p>
+  <video id="video" autoplay playsinline controls></video>
+
+  <script>
+    const log = (m) => { document.getElementById('log').textContent = m; console.log(m); };
+    const playBtn = document.getElementById('play');
+    const roomInput = document.getElementById('room');
+    const videoEl = document.getElementById('video');
+
+    async function play() {
+      playBtn.disabled = true;
+      const room = roomInput.value || 'demo';
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }]
+      });
+      pc.onconnectionstatechange = () => log('PC state: ' + pc.connectionState);
+      pc.ontrack = (e) => {
+        // Combine audio/video into a single stream for the <video> element
+        const [stream] = e.streams;
+        videoEl.srcObject = stream;
+      };
+
+      // Ensure m-lines exist even before tracks arrive
+      pc.addTransceiver('video', { direction: 'recvonly' });
+      pc.addTransceiver('audio', { direction: 'recvonly' });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+
+      const resp = await fetch(`/api/whep/play/${encodeURIComponent(room)}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/sdp' },
+        body: offer.sdp,
+      });
+      if (!resp.ok) {
+        log('服务器错误: ' + await resp.text());
+        return;
+      }
+      const answerSDP = await resp.text();
+      await pc.setRemoteDescription({ type: 'answer', sdp: answerSDP });
+      log('播放已建立');
+    }
+
+    playBtn.onclick = play;
+  </script>
+</body>
+</html>

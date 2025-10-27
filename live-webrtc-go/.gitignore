@@ -1,0 +1,36 @@
+# Build artifacts
+bin/
+build/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Go build cache and modules
+*.test
+*.out
+*.log
+*.cover
+coverage/
+*.coverprofile
+*.prof
+
+# Dependencies
+vendor/
+
+# IDE/editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local configuration
+.env
+.env.*
+*.local
+
+# Generated assets
+web/dist/
