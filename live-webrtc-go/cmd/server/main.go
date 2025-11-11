@@ -3,27 +3,30 @@ package main
 import (
 	"context"
 	"embed"
-	"io/fs"
 	"fmt"
+	"io/fs"
 	"log"
+	"net/http"
 	"os"
 	"os/signal"
-	"net/http"
 	"strings"
 	"syscall"
 	"time"
 
-	"live-webrtc-go/internal/config"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
 	"live-webrtc-go/internal/api"
+	"live-webrtc-go/internal/config"
 	"live-webrtc-go/internal/sfu"
 	"live-webrtc-go/internal/uploader"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 //go:embed web
+// web 静态资源会被打包进二进制，便于单文件部署
 var webFS embed.FS
 
 func main() {
+	// 加载配置并初始化依赖（上传器、SFU 管理器、HTTP 处理器）
 	cfg := config.Load()
 	_ = uploader.Init(cfg)
 	mgr := sfu.NewManager(cfg)
@@ -76,6 +79,7 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 
+	// 暴露 Prometheus 指标，供外部采集 RTP/房间统计
 	mux.Handle("/metrics", promhttp.Handler())
 
 	// Recorded files
@@ -109,6 +113,7 @@ func main() {
 		}
 	}()
 
+	// 捕获中断信号，触发优雅关闭，确保 WebRTC 连接被清理
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
 	<-stop
