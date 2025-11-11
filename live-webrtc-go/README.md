@@ -27,6 +27,16 @@
  go run ./cmd/server
 ```
 
+### 启动脚本
+
+本地开发可以直接使用 `scripts/start.sh`，脚本会自动准备缓存目录并可加载 `.env.local`：
+
+```bash
+./scripts/start.sh
+```
+
+设置 `SKIP_TIDY=1 ./scripts/start.sh` 可跳过 `go mod tidy`。
+
 启动后访问：
 
 - 推流页：http://localhost:8080/web/publisher.html
@@ -171,3 +181,8 @@ docker compose up -d
 欢迎 Issue 与 Pull Request！
 
 > 若你在实际项目中使用本仓库，欢迎分享反馈与改进建议。
+
+## 延伸文档
+
+- [使用指南](docs/usage.md)：完整的启动、部署、API 示例与排障。
+- [设计说明](docs/design.md)：架构背景、模块拆分与数据流。

@@ -1,5 +1,7 @@
 package metrics
 
+// 暴露 Prometheus 指标，方便排查每个房间的带宽与在线情况。
+
 import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -27,8 +29,8 @@ var (
 	})
 )
 
-func SetRooms(n float64) { Rooms.Set(n) }
-func IncSubscribers(room string) { Subscribers.WithLabelValues(room).Inc() }
-func DecSubscribers(room string) { Subscribers.WithLabelValues(room).Dec() }
+func SetRooms(n float64)          { Rooms.Set(n) }
+func IncSubscribers(room string)  { Subscribers.WithLabelValues(room).Inc() }
+func DecSubscribers(room string)  { Subscribers.WithLabelValues(room).Dec() }
 func AddBytes(room string, n int) { RTPBytes.WithLabelValues(room).Add(float64(n)) }
-func IncPackets(room string) { RTPPackets.WithLabelValues(room).Inc() }
+func IncPackets(room string)      { RTPPackets.WithLabelValues(room).Inc() }

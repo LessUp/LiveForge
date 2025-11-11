@@ -1,3 +1,4 @@
+// Package uploader 抽象录制文件上传逻辑，可选对接 S3/MinIO。
 package uploader
 
 import (
@@ -19,6 +20,7 @@ var (
 	cfg    *config.Config
 )
 
+// Init 根据配置初始化 MinIO/S3 客户端。
 func Init(c *config.Config) error {
 	cfg = c
 	if !c.UploadEnabled {
@@ -47,6 +49,7 @@ func Init(c *config.Config) error {
 
 func Enabled() bool { return cfg != nil && cfg.UploadEnabled && client != nil }
 
+// Upload 会把录制文件推送到对象存储，必要时删除本地文件。
 func Upload(ctx context.Context, localPath string) error {
 	if !Enabled() {
 		return nil

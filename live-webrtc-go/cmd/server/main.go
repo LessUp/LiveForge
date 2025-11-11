@@ -21,8 +21,9 @@ import (
 	"live-webrtc-go/internal/uploader"
 )
 
-//go:embed web
 // web 静态资源会被打包进二进制，便于单文件部署
+//
+//go:embed web
 var webFS embed.FS
 
 func main() {

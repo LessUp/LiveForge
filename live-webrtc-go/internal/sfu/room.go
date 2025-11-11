@@ -4,21 +4,22 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
-	"time"
 	"os"
 	"path/filepath"
+	"sync"
+	"time"
 
-	"live-webrtc-go/internal/config"
-	"live-webrtc-go/internal/metrics"
-	"live-webrtc-go/internal/uploader"
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/pion/webrtc/v3"
 	"github.com/pion/webrtc/v3/pkg/media/ivfwriter"
 	"github.com/pion/webrtc/v3/pkg/media/oggwriter"
+	"live-webrtc-go/internal/config"
+	"live-webrtc-go/internal/metrics"
+	"live-webrtc-go/internal/uploader"
 )
 
+// Manager 负责跟踪所有房间的生命周期，提供 Publish/Subscribe 入口。
 type Manager struct {
 	mu    sync.RWMutex
 	rooms map[string]*Room
@@ -40,20 +41,22 @@ func (m *Manager) CloseRoom(name string) bool {
 	return ok
 }
 
+// CloseAll 在服务退出时关闭所有房间，避免 WebRTC 连接泄漏。
 func (m *Manager) CloseAll() {
-    m.mu.Lock()
-    rooms := make([]*Room, 0, len(m.rooms))
-    for _, r := range m.rooms {
-        rooms = append(rooms, r)
-    }
-    m.rooms = make(map[string]*Room)
-    m.mu.Unlock()
-    for _, r := range rooms {
-        r.Close()
-    }
-    metrics.SetRooms(0)
+	m.mu.Lock()
+	rooms := make([]*Room, 0, len(m.rooms))
+	for _, r := range m.rooms {
+		rooms = append(rooms, r)
+	}
+	m.rooms = make(map[string]*Room)
+	m.mu.Unlock()
+	for _, r := range rooms {
+		r.Close()
+	}
+	metrics.SetRooms(0)
 }
 
+// NewManager 创建一个房间管理器。
 func NewManager(c *config.Config) *Manager {
 	return &Manager{rooms: make(map[string]*Room), cfg: c}
 }
@@ -81,10 +84,10 @@ func (m *Manager) Subscribe(ctx context.Context, roomName, offerSDP string) (str
 }
 
 type RoomInfo struct {
-	Name          string
-	HasPublisher  bool
-	Tracks        int
-	Subscribers   int
+	Name         string
+	HasPublisher bool
+	Tracks       int
+	Subscribers  int
 }
 
 func (m *Manager) ListRooms() []RoomInfo {
@@ -97,6 +100,7 @@ func (m *Manager) ListRooms() []RoomInfo {
 	return out
 }
 
+// Room 表示一个 SFU 房间，维护发布者、订阅者与轨道 fanout。
 type Room struct {
 	name       string
 	mu         sync.RWMutex
@@ -106,6 +110,7 @@ type Room struct {
 	mgr        *Manager
 }
 
+// NewRoom 初始化房间默认状态。
 func NewRoom(name string, m *Manager) *Room {
 	return &Room{
 		name:       name,
@@ -137,6 +142,7 @@ func (r *Room) iceConfig() webrtc.Configuration {
 	return webrtc.Configuration{ICEServers: servers}
 }
 
+// Publish 接收主播的 SDP Offer，创建 PeerConnection 并拉起 track fanout。
 func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 	r.mu.Lock()
 	if r.publisher != nil {
@@ -179,6 +185,7 @@ func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 		go feed.readLoop()
 
 		go func() {
+			// 周期性发送 PLI，提醒发布端刷新关键帧，减轻画面马赛克
 			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
 			for range ticker.C {
@@ -193,6 +200,7 @@ func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 		}()
 
 		if r.mgr != nil && r.mgr.cfg != nil && r.mgr.cfg.RecordEnabled {
+			// 针对音频/视频分别创建 OGG/IVF 写入器做简单录制
 			_ = os.MkdirAll(r.mgr.cfg.RecordDir, 0o755)
 			base := fmt.Sprintf("%s_%s_%d", r.name, remote.ID(), time.Now().Unix())
 			mime := remote.Codec().MimeType
@@ -234,6 +242,7 @@ func (r *Room) Publish(ctx context.Context, offerSDP string) (string, error) {
 	return pc.LocalDescription().SDP, nil
 }
 
+// Subscribe 为观众创建 PeerConnection，并把已存在的 track fanout 到新订阅者。
 func (r *Room) Subscribe(ctx context.Context, offerSDP string) (string, error) {
 	if r.mgr != nil && r.mgr.cfg != nil && r.mgr.cfg.MaxSubsPerRoom > 0 {
 		r.mu.RLock()
@@ -295,6 +304,7 @@ func (r *Room) Subscribe(ctx context.Context, offerSDP string) (string, error) {
 	return pc.LocalDescription().SDP, nil
 }
 
+// closePublisher 在发布者掉线时清理资源，并断开所有 fanout。
 func (r *Room) closePublisher(pc *webrtc.PeerConnection) {
 	r.mu.Lock()
 	if r.publisher == pc {
@@ -308,6 +318,7 @@ func (r *Room) closePublisher(pc *webrtc.PeerConnection) {
 	_ = pc.Close()
 }
 
+// removeSubscriber 在订阅者离线时解除与 track fanout 的绑定。
 func (r *Room) removeSubscriber(pc *webrtc.PeerConnection) {
 	r.mu.Lock()
 	if _, ok := r.subs[pc]; ok {
@@ -321,6 +332,7 @@ func (r *Room) removeSubscriber(pc *webrtc.PeerConnection) {
 	metrics.DecSubscribers(r.name)
 }
 
+// Close 主动关闭房间内所有连接。
 func (r *Room) Close() {
 	r.mu.Lock()
 	pub := r.publisher
@@ -342,14 +354,15 @@ func (r *Room) Close() {
 	}
 }
 
+// trackFanout 负责把单个远端 Track 分发给多个订阅者，并可选写盘上传。
 type trackFanout struct {
 	remote *webrtc.TrackRemote
 	mu     sync.RWMutex
 	// per-subscriber local tracks
-	locals map[*webrtc.PeerConnection]*webrtc.TrackLocalStaticRTP
-	closed chan struct{}
-	room   string
-	rec    rtpWriter
+	locals  map[*webrtc.PeerConnection]*webrtc.TrackLocalStaticRTP
+	closed  chan struct{}
+	room    string
+	rec     rtpWriter
 	recPath string
 }
 
@@ -374,6 +387,7 @@ func (f *trackFanout) setRecorder(w rtpWriter, path string) {
 	f.mu.Unlock()
 }
 
+// attachToSubscriber 为订阅者创建本地 Track，并启动读取循环以清理发送缓冲。
 func (f *trackFanout) attachToSubscriber(pc *webrtc.PeerConnection) {
 	codec := f.remote.Codec().RTPCodecCapability
 	local, err := webrtc.NewTrackLocalStaticRTP(codec, f.remote.ID(), f.remote.StreamID())
@@ -404,6 +418,7 @@ func (f *trackFanout) detachFromSubscriber(pc *webrtc.PeerConnection) {
 	f.mu.Unlock()
 }
 
+// close 关闭录制文件并触发异步上传。
 func (f *trackFanout) close() {
 	select {
 	case <-f.closed:
@@ -423,6 +438,7 @@ func (f *trackFanout) close() {
 	f.mu.Unlock()
 }
 
+// readLoop 持续从远端 Track 读取 RTP，并同步写入录制和所有订阅者。
 func (f *trackFanout) readLoop() {
 	buf := make([]byte, 1500)
 	for {

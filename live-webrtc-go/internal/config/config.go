@@ -2,41 +2,43 @@ package config
 
 import (
 	"os"
-	"strings"
 	"strconv"
+	"strings"
 )
 
+// Config 汇总 HTTP 服务、SFU、录制、上传、鉴权等配置项。
 type Config struct {
-	HTTPAddr      string
-	AllowedOrigin string
-	AuthToken     string
-	STUN          []string
-	TURN          []string
-	TLSCertFile   string
-	TLSKeyFile    string
-	RecordEnabled bool
-	RecordDir     string
-	MaxSubsPerRoom int
-	RoomTokens    map[string]string
-	TURNUsername  string
-	TURNPassword  string
-	UploadEnabled bool
+	HTTPAddr          string
+	AllowedOrigin     string
+	AuthToken         string
+	STUN              []string
+	TURN              []string
+	TLSCertFile       string
+	TLSKeyFile        string
+	RecordEnabled     bool
+	RecordDir         string
+	MaxSubsPerRoom    int
+	RoomTokens        map[string]string
+	TURNUsername      string
+	TURNPassword      string
+	UploadEnabled     bool
 	DeleteAfterUpload bool
-	S3Endpoint   string
-	S3Region     string
-	S3Bucket     string
-	S3AccessKey  string
-	S3SecretKey  string
-	S3UseSSL     bool
-	S3PathStyle  bool
-	S3Prefix     string
-	AdminToken   string
-	RateLimitRPS float64
-	RateLimitBurst int
-	JWTSecret    string
-	PprofEnabled bool
+	S3Endpoint        string
+	S3Region          string
+	S3Bucket          string
+	S3AccessKey       string
+	S3SecretKey       string
+	S3UseSSL          bool
+	S3PathStyle       bool
+	S3Prefix          string
+	AdminToken        string
+	RateLimitRPS      float64
+	RateLimitBurst    int
+	JWTSecret         string
+	PprofEnabled      bool
 }
 
+// Load 会读取环境变量并填充 Config，使用合理的默认值。
 func Load() *Config {
 	c := &Config{
 		HTTPAddr:      getEnv("HTTP_ADDR", ":8080"),
@@ -100,6 +102,7 @@ func getEnv(k, d string) string {
 	return d
 }
 
+// splitCSV 解析逗号分隔的列表，同时清理多余空白。
 func splitCSV(s string) []string {
 	parts := strings.Split(s, ",")
 	var out []string
@@ -112,14 +115,19 @@ func splitCSV(s string) []string {
 	return out
 }
 
+// parseRoomTokens 支持 "room1:token1;room2:token2" 风格的配置。
 func parseRoomTokens(s string) map[string]string {
 	m := map[string]string{}
 	items := strings.Split(s, ";")
 	for _, it := range items {
 		it = strings.TrimSpace(it)
-		if it == "" { continue }
+		if it == "" {
+			continue
+		}
 		kv := strings.SplitN(it, ":", 2)
-		if len(kv) != 2 { continue }
+		if len(kv) != 2 {
+			continue
+		}
 		k := strings.TrimSpace(kv[0])
 		v := strings.TrimSpace(kv[1])
 		if k != "" && v != "" {
