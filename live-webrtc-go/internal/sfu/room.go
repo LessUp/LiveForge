@@ -25,6 +25,35 @@ type Manager struct {
 	cfg   *config.Config
 }
 
+func (m *Manager) CloseRoom(name string) bool {
+	m.mu.Lock()
+	r, ok := m.rooms[name]
+	if ok {
+		delete(m.rooms, name)
+	}
+	n := len(m.rooms)
+	m.mu.Unlock()
+	if ok {
+		r.Close()
+		metrics.SetRooms(float64(n))
+	}
+	return ok
+}
+
+func (m *Manager) CloseAll() {
+    m.mu.Lock()
+    rooms := make([]*Room, 0, len(m.rooms))
+    for _, r := range m.rooms {
+        rooms = append(rooms, r)
+    }
+    m.rooms = make(map[string]*Room)
+    m.mu.Unlock()
+    for _, r := range rooms {
+        r.Close()
+    }
+    metrics.SetRooms(0)
+}
+
 func NewManager(c *config.Config) *Manager {
 	return &Manager{rooms: make(map[string]*Room), cfg: c}
 }
@@ -290,6 +319,27 @@ func (r *Room) removeSubscriber(pc *webrtc.PeerConnection) {
 	r.mu.Unlock()
 	_ = pc.Close()
 	metrics.DecSubscribers(r.name)
+}
+
+func (r *Room) Close() {
+	r.mu.Lock()
+	pub := r.publisher
+	feeds := r.trackFeeds
+	subs := r.subs
+	r.publisher = nil
+	r.trackFeeds = make(map[string]*trackFanout)
+	r.subs = make(map[*webrtc.PeerConnection]struct{})
+	r.mu.Unlock()
+
+	if pub != nil {
+		_ = pub.Close()
+	}
+	for _, f := range feeds {
+		f.close()
+	}
+	for s := range subs {
+		_ = s.Close()
+	}
 }
 
 type trackFanout struct {

@@ -1,12 +1,17 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"io/fs"
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
 	"net/http"
 	"strings"
+	"syscall"
+	"time"
 
 	"live-webrtc-go/internal/config"
 	"live-webrtc-go/internal/api"
@@ -49,6 +54,22 @@ func main() {
 	mux.HandleFunc("/api/rooms", h.ServeRooms)
 	mux.HandleFunc("/api/records", h.ServeRecordsList)
 
+	// Admin close room: /api/admin/rooms/{room}/close
+	mux.HandleFunc("/api/admin/rooms/", func(w http.ResponseWriter, r *http.Request) {
+		p := strings.TrimPrefix(r.URL.Path, "/api/admin/rooms/")
+		if strings.HasSuffix(p, "/close") {
+			room := strings.TrimSuffix(p, "/close")
+			room = strings.TrimSuffix(room, "/")
+			if room == "" || strings.Contains(room, "..") {
+				http.Error(w, "invalid room", http.StatusBadRequest)
+				return
+			}
+			h.ServeAdminCloseRoom(w, r, room)
+			return
+		}
+		http.NotFound(w, r)
+	})
+
 	// Health check
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -74,13 +95,25 @@ func main() {
 	addr := cfg.HTTPAddr
 	fmt.Printf("Live WebRTC server listening on %s\n", addr)
 	fmt.Println("Open http://localhost:8080/web/publisher.html and http://localhost:8080/web/player.html")
-	if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
-		if err := http.ListenAndServeTLS(addr, cfg.TLSCertFile, cfg.TLSKeyFile, mux); err != nil {
+
+	srv := &http.Server{Addr: addr, Handler: mux}
+	go func() {
+		var err error
+		if cfg.TLSCertFile != "" && cfg.TLSKeyFile != "" {
+			err = srv.ListenAndServeTLS(cfg.TLSCertFile, cfg.TLSKeyFile)
+		} else {
+			err = srv.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			log.Fatal(err)
 		}
-		return
-	}
-	if err := http.ListenAndServe(addr, mux); err != nil {
-		log.Fatal(err)
-	}
+	}()
+
+	stop := make(chan os.Signal, 1)
+	signal.Notify(stop, os.Interrupt, syscall.SIGTERM)
+	<-stop
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(ctx)
+	mgr.CloseAll()
 }

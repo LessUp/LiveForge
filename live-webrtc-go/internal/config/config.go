@@ -30,6 +30,11 @@ type Config struct {
 	S3UseSSL     bool
 	S3PathStyle  bool
 	S3Prefix     string
+	AdminToken   string
+	RateLimitRPS float64
+	RateLimitBurst int
+	JWTSecret    string
+	PprofEnabled bool
 }
 
 func Load() *Config {
@@ -72,6 +77,19 @@ func Load() *Config {
 	c.S3UseSSL = getEnv("S3_USE_SSL", "1") == "1"
 	c.S3PathStyle = getEnv("S3_PATH_STYLE", "") == "1"
 	c.S3Prefix = getEnv("S3_PREFIX", "")
+	c.AdminToken = getEnv("ADMIN_TOKEN", "")
+	if v := getEnv("RATE_LIMIT_RPS", "0"); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			c.RateLimitRPS = f
+		}
+	}
+	if v := getEnv("RATE_LIMIT_BURST", "0"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			c.RateLimitBurst = n
+		}
+	}
+	c.JWTSecret = getEnv("JWT_SECRET", "")
+	c.PprofEnabled = getEnv("PPROF", "") == "1"
 	return c
 }
 

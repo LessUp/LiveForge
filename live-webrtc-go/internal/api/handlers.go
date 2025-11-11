@@ -9,14 +9,19 @@ import (
     "net/http"
     "strings"
     "time"
+    "sync"
 
     "live-webrtc-go/internal/config"
     "live-webrtc-go/internal/sfu"
+    "golang.org/x/time/rate"
+    jwt "github.com/golang-jwt/jwt/v5"
 )
 
 type HTTPHandlers struct {
     mgr *sfu.Manager
     cfg *config.Config
+    mu  sync.Mutex
+    limiter map[string]*rate.Limiter
 }
 
 // ServeRooms handles GET /api/rooms
@@ -30,13 +35,21 @@ func (h *HTTPHandlers) ServeRooms(w http.ResponseWriter, r *http.Request) {
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
         return
     }
+    if !h.allowRate(r) {
+        http.Error(w, "too many requests", http.StatusTooManyRequests)
+        return
+    }
     rooms := h.mgr.ListRooms()
     w.Header().Set("Content-Type", "application/json")
     _ = json.NewEncoder(w).Encode(rooms)
 }
 
 func NewHTTPHandlers(m *sfu.Manager, c *config.Config) *HTTPHandlers {
-    return &HTTPHandlers{mgr: m, cfg: c}
+    h := &HTTPHandlers{mgr: m, cfg: c}
+    if c.RateLimitRPS > 0 {
+        h.limiter = make(map[string]*rate.Limiter)
+    }
+    return h
 }
 
 // ServeWHIPPublish handles POST /api/whip/publish/{room}
@@ -48,6 +61,10 @@ func (h *HTTPHandlers) ServeWHIPPublish(w http.ResponseWriter, r *http.Request, 
     }
     if r.Method != http.MethodPost {
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if !h.allowRate(r) {
+        http.Error(w, "too many requests", http.StatusTooManyRequests)
         return
     }
     if !h.authOKRoom(r, room) {
@@ -75,6 +92,10 @@ func (h *HTTPHandlers) ServeWHEPPlay(w http.ResponseWriter, r *http.Request, roo
     }
     if r.Method != http.MethodPost {
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if !h.allowRate(r) {
+        http.Error(w, "too many requests", http.StatusTooManyRequests)
         return
     }
     if !h.authOKRoom(r, room) {
@@ -110,12 +131,20 @@ func (h *HTTPHandlers) allowCORS(w http.ResponseWriter, r *http.Request) {
 func (h *HTTPHandlers) authOKRoom(r *http.Request, room string) bool {
     // room-specific token overrides global config if set
     if tok, ok := h.cfg.RoomTokens[room]; ok && tok != "" {
-        return tokenMatch(r, tok)
+        if tokenMatch(r, tok) { return true }
+        if h.cfg.JWTSecret != "" && jwtOKRoom(r, room, h.cfg.JWTSecret) { return true }
+        return false
     }
-    if h.cfg.AuthToken == "" {
-        return true
+    if h.cfg.AuthToken != "" {
+        if tokenMatch(r, h.cfg.AuthToken) { return true }
+        if h.cfg.JWTSecret != "" && jwtOKRoom(r, room, h.cfg.JWTSecret) { return true }
+        return false
     }
-    return tokenMatch(r, h.cfg.AuthToken)
+    if h.cfg.JWTSecret != "" {
+        if jwtOKRoom(r, room, h.cfg.JWTSecret) { return true }
+        return false
+    }
+    return true
 }
 
 func tokenMatch(r *http.Request, expect string) bool {
@@ -127,6 +156,21 @@ func tokenMatch(r *http.Request, expect string) bool {
         return strings.TrimSpace(auth[7:]) == expect
     }
     return false
+}
+
+func jwtOKRoom(r *http.Request, room, secret string) bool {
+    auth := r.Header.Get("Authorization")
+    if !strings.HasPrefix(strings.ToLower(auth), "bearer ") { return false }
+    tokenString := strings.TrimSpace(auth[7:])
+    parsed, err := jwt.Parse(tokenString, func(t *jwt.Token) (interface{}, error) {
+        if _, ok := t.Method.(*jwt.SigningMethodHMAC); !ok { return nil, jwt.ErrInvalidKeyType }
+        return []byte(secret), nil
+    })
+    if err != nil || !parsed.Valid { return false }
+    if claims, ok := parsed.Claims.(jwt.MapClaims); ok {
+        if v, ok := claims["room"].(string); ok && v != "" && v != room { return false }
+    }
+    return true
 }
 
 func hostMatch(expect, origin string) bool {
@@ -152,6 +196,10 @@ func (h *HTTPHandlers) ServeRecordsList(w http.ResponseWriter, r *http.Request) 
     }
     if r.Method != http.MethodGet {
         http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if !h.allowRate(r) {
+        http.Error(w, "too many requests", http.StatusTooManyRequests)
         return
     }
     dir := h.cfg.RecordDir
@@ -183,4 +231,26 @@ func (h *HTTPHandlers) ServeRecordsList(w http.ResponseWriter, r *http.Request) 
     }
     w.Header().Set("Content-Type", "application/json")
     _ = json.NewEncoder(w).Encode(list)
+}
+
+func (h *HTTPHandlers) ServeAdminCloseRoom(w http.ResponseWriter, r *http.Request, room string) {
+    h.allowCORS(w, r)
+    if r.Method == http.MethodOptions {
+        w.WriteHeader(http.StatusNoContent)
+        return
+    }
+    if r.Method != http.MethodPost {
+        http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+        return
+    }
+    if !h.adminOK(r) {
+        http.Error(w, "unauthorized", http.StatusUnauthorized)
+        return
+    }
+    ok := h.mgr.CloseRoom(room)
+    if !ok {
+        http.Error(w, "not found", http.StatusNotFound)
+        return
+    }
+    w.WriteHeader(http.StatusOK)
 }

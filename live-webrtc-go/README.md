@@ -46,6 +46,7 @@
 | `POST` | `/api/whep/play/{room}` | 接受 SDP Offer，返回 SDP Answer，建立播放连接 |
 | `GET` | `/api/rooms` | 返回房间列表与在线状态 |
 | `GET` | `/api/records` | 返回录制文件列表（名称/大小/时间/URL） |
+| `POST` | `/api/admin/rooms/{room}/close` | 关闭指定房间（需 `ADMIN_TOKEN` 鉴权） |
 | `GET` | `/healthz` | 健康检查 |
 
 ### 鉴权
@@ -89,6 +90,21 @@ X-Auth-Token: <token>
 | `S3_USE_SSL` | `1` | 是否使用 SSL（`1`/`0`） |
 | `S3_PATH_STYLE` | `0` | 是否启用 Path-Style（MinIO 通常为 `1`） |
 | `S3_PREFIX` | _(空)_ | 上传时的对象前缀，可为空 |
+| `ADMIN_TOKEN` | _(空)_ | 管理员令牌，用于调用管理接口 |
+| `RATE_LIMIT_RPS` | `0` | 每 IP 限流速率（请求/秒，`0` 表示关闭） |
+| `RATE_LIMIT_BURST` | `0` | 限流突发容量（令牌桶大小） |
+
+### 管理接口示例
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  http://localhost:8080/api/admin/rooms/demo/close -i
+```
+
+### 关闭与优雅停机
+
+服务收到中断信号（Ctrl+C 或 SIGTERM）后，将优雅关闭 HTTP 服务并关闭所有房间、连接与录制资源。
 
 ## 项目结构
 
