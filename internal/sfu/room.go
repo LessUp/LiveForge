@@ -1,3 +1,4 @@
+// Package sfu 提供轻量级房间与轨道分发的教学实现。
 package sfu
 
 import (
@@ -26,6 +27,7 @@ type Manager struct {
 	cfg   *config.Config
 }
 
+// CloseRoom 主动关闭指定房间并更新房间数量指标。
 func (m *Manager) CloseRoom(name string) bool {
 	m.mu.Lock()
 	r, ok := m.rooms[name]
@@ -61,6 +63,7 @@ func NewManager(c *config.Config) *Manager {
 	return &Manager{rooms: make(map[string]*Room), cfg: c}
 }
 
+// getOrCreateRoom 获取或创建房间，首次创建时更新房间计数指标。
 func (m *Manager) getOrCreateRoom(name string) *Room {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -73,11 +76,13 @@ func (m *Manager) getOrCreateRoom(name string) *Room {
 	return r
 }
 
+// Publish 根据房间名将 SDP Offer 交给对应 Room 处理，返回 SDP Answer。
 func (m *Manager) Publish(ctx context.Context, roomName, offerSDP string) (string, error) {
 	r := m.getOrCreateRoom(roomName)
 	return r.Publish(ctx, offerSDP)
 }
 
+// Subscribe 根据房间名将 SDP Offer 交给对应 Room 处理，返回 SDP Answer。
 func (m *Manager) Subscribe(ctx context.Context, roomName, offerSDP string) (string, error) {
 	r := m.getOrCreateRoom(roomName)
 	return r.Subscribe(ctx, offerSDP)
@@ -120,6 +125,7 @@ func NewRoom(name string, m *Manager) *Room {
 	}
 }
 
+// iceConfig 生成 ICE 配置，优先使用配置中的 STUN/TURN。
 func (r *Room) iceConfig() webrtc.Configuration {
 	var servers []webrtc.ICEServer
 	if r.mgr != nil && r.mgr.cfg != nil {
@@ -380,6 +386,7 @@ type rtpWriter interface {
 	Close() error
 }
 
+// setRecorder 设置录制写入器与目标文件路径。
 func (f *trackFanout) setRecorder(w rtpWriter, path string) {
 	f.mu.Lock()
 	f.rec = w

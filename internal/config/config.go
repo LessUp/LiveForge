@@ -1,3 +1,4 @@
+// 包 config 负责从环境变量加载运行时配置，给服务各模块使用。
 package config
 
 import (
@@ -8,48 +9,49 @@ import (
 
 // Config 汇总 HTTP 服务、SFU、录制、上传、鉴权等配置项。
 type Config struct {
-	HTTPAddr          string
-	AllowedOrigin     string
-	AuthToken         string
-	STUN              []string
-	TURN              []string
-	TLSCertFile       string
-	TLSKeyFile        string
-	RecordEnabled     bool
-	RecordDir         string
-	MaxSubsPerRoom    int
-	RoomTokens        map[string]string
-	TURNUsername      string
-	TURNPassword      string
-	UploadEnabled     bool
-	DeleteAfterUpload bool
-	S3Endpoint        string
-	S3Region          string
-	S3Bucket          string
-	S3AccessKey       string
-	S3SecretKey       string
-	S3UseSSL          bool
-	S3PathStyle       bool
-	S3Prefix          string
-	AdminToken        string
-	RateLimitRPS      float64
-	RateLimitBurst    int
-	JWTSecret         string
-	PprofEnabled      bool
+    HTTPAddr          string            // HTTP 服务监听地址，例如 ":8080"
+    AllowedOrigin     string            // 允许的跨域来源，"*" 表示全部
+    AuthToken         string            // 全局访问 Token（房间级优先）
+    STUN              []string          // STUN 服务器 URL 列表
+    TURN              []string          // TURN 服务器 URL 列表
+    TLSCertFile       string            // TLS 证书文件路径（可选）
+    TLSKeyFile        string            // TLS 私钥文件路径（可选）
+    RecordEnabled     bool              // 是否开启录制
+    RecordDir         string            // 录制文件存储目录
+    MaxSubsPerRoom    int               // 每房间最大订阅者数（0 表示不限）
+    RoomTokens        map[string]string // 房间级 Token 映射：room->token
+    TURNUsername      string            // TURN 用户名
+    TURNPassword      string            // TURN 密码
+    UploadEnabled     bool              // 是否开启录制文件上传
+    DeleteAfterUpload bool              // 上传成功后是否删除本地文件
+    S3Endpoint        string            // 对象存储端点
+    S3Region          string            // 对象存储区域（可选）
+    S3Bucket          string            // 对象存储桶名
+    S3AccessKey       string            // 访问密钥 ID
+    S3SecretKey       string            // 访问密钥 Secret
+    S3UseSSL          bool              // 是否使用 SSL 访问对象存储
+    S3PathStyle       bool              // 是否使用 Path-Style 访问
+    S3Prefix          string            // 上传时的对象名前缀
+    AdminToken        string            // 管理接口的 Token
+    RateLimitRPS      float64           // 每 IP 的速率限制（每秒请求数）
+    RateLimitBurst    int               // 速率限制突发值
+    JWTSecret         string            // JWT HMAC 密钥
+    PprofEnabled      bool              // 是否启用 pprof 调试端点
 }
 
 // Load 会读取环境变量并填充 Config，使用合理的默认值。
+// Load 从环境变量读取配置项并设置默认值，适合教学演示环境。
 func Load() *Config {
-	c := &Config{
-		HTTPAddr:      getEnv("HTTP_ADDR", ":8080"),
-		AllowedOrigin: getEnv("ALLOWED_ORIGIN", "*"),
-		AuthToken:     getEnv("AUTH_TOKEN", ""),
-	}
-	if v := os.Getenv("STUN_URLS"); v != "" {
-		c.STUN = splitCSV(v)
-	} else {
-		c.STUN = []string{"stun:stun.l.google.com:19302"}
-	}
+    c := &Config{
+        HTTPAddr:      getEnv("HTTP_ADDR", ":8080"),
+        AllowedOrigin: getEnv("ALLOWED_ORIGIN", "*"),
+        AuthToken:     getEnv("AUTH_TOKEN", ""),
+    }
+    if v := os.Getenv("STUN_URLS"); v != "" {
+        c.STUN = splitCSV(v)
+    } else {
+        c.STUN = []string{"stun:stun.l.google.com:19302"}
+    }
 	if v := os.Getenv("TURN_URLS"); v != "" {
 		c.TURN = splitCSV(v)
 	}

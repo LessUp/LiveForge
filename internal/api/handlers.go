@@ -1,3 +1,4 @@
+// Package api 提供 HTTP 层路由与横切逻辑：CORS、限流、鉴权与业务接口。
 package api
 
 import (
@@ -45,6 +46,7 @@ func (h *HTTPHandlers) ServeRooms(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(rooms)
 }
 
+// NewHTTPHandlers 组合房间管理器与配置，并在启用速率限制时初始化每 IP 的限流器。
 func NewHTTPHandlers(m *sfu.Manager, c *config.Config) *HTTPHandlers {
 	h := &HTTPHandlers{mgr: m, cfg: c}
 	if c.RateLimitRPS > 0 {
@@ -53,7 +55,8 @@ func NewHTTPHandlers(m *sfu.Manager, c *config.Config) *HTTPHandlers {
 	return h
 }
 
-// ServeWHIPPublish handles POST /api/whip/publish/{room}
+// ServeWHIPPublish 处理 WHIP 推流：POST /api/whip/publish/{room}
+// 请求体为 SDP Offer，返回 SDP Answer（201 Created）。
 func (h *HTTPHandlers) ServeWHIPPublish(w http.ResponseWriter, r *http.Request, room string) {
 	h.allowCORS(w, r)
 	if r.Method == http.MethodOptions {
@@ -84,7 +87,8 @@ func (h *HTTPHandlers) ServeWHIPPublish(w http.ResponseWriter, r *http.Request, 
 	_, _ = w.Write([]byte(answer))
 }
 
-// ServeWHEPPlay handles POST /api/whep/play/{room}
+// ServeWHEPPlay 处理 WHEP 播放：POST /api/whep/play/{room}
+// 请求体为 SDP Offer，返回 SDP Answer（201 Created）。
 func (h *HTTPHandlers) ServeWHEPPlay(w http.ResponseWriter, r *http.Request, room string) {
 	h.allowCORS(w, r)
 	if r.Method == http.MethodOptions {
@@ -115,6 +119,7 @@ func (h *HTTPHandlers) ServeWHEPPlay(w http.ResponseWriter, r *http.Request, roo
 	_, _ = w.Write([]byte(answer))
 }
 
+// allowCORS 设置基础跨域响应头，适配示例页面与教学演示。
 func (h *HTTPHandlers) allowCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	ao := h.cfg.AllowedOrigin
@@ -129,6 +134,8 @@ func (h *HTTPHandlers) allowCORS(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Credentials", "true")
 }
 
+// authOKRoom 校验访问权限：优先房间级 Token，再回退到全局 Token 或 JWT；
+// JWT 可包含 room 声明以限制访问到指定房间。
 func (h *HTTPHandlers) authOKRoom(r *http.Request, room string) bool {
 	// 优先匹配房间级 Token，再回退到全局 Token 或 JWT。
 	// room-specific token overrides global config if set
@@ -159,6 +166,7 @@ func (h *HTTPHandlers) authOKRoom(r *http.Request, room string) bool {
 	return true
 }
 
+// tokenMatch 从 X-Auth-Token 或 Authorization: Bearer 中读取并比对令牌。
 func tokenMatch(r *http.Request, expect string) bool {
 	if t := r.Header.Get("X-Auth-Token"); t != "" {
 		return t == expect
@@ -170,6 +178,8 @@ func tokenMatch(r *http.Request, expect string) bool {
 	return false
 }
 
+// jwtOKRoom 验证 HMAC JWT 并（可选）校验 claims.room 与目标房间一致。
+// 为简化演示，不强制验证 exp/iat/aud。
 func jwtOKRoom(r *http.Request, room, secret string) bool {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
@@ -193,6 +203,7 @@ func jwtOKRoom(r *http.Request, room, secret string) bool {
 	return true
 }
 
+// hostMatch 简单比对来源主机名是否与配置相符。
 func hostMatch(expect, origin string) bool {
 	u := origin
 	if i := strings.Index(origin, "://"); i >= 0 {
@@ -208,6 +219,7 @@ func hostMatch(expect, origin string) bool {
 	return host == expect || origin == expect
 }
 
+// ServeRecordsList 列出 RECORD_DIR 下的 ivf/ogg 文件并返回元数据。
 func (h *HTTPHandlers) ServeRecordsList(w http.ResponseWriter, r *http.Request) {
 	// 查询本地录制目录，将 IVF/OGG 文件以 JSON 返回
 	h.allowCORS(w, r)
@@ -260,6 +272,7 @@ func (h *HTTPHandlers) ServeRecordsList(w http.ResponseWriter, r *http.Request) 
 	_ = json.NewEncoder(w).Encode(list)
 }
 
+// ServeAdminCloseRoom 管理接口：关闭指定房间，释放资源并返回 200。
 func (h *HTTPHandlers) ServeAdminCloseRoom(w http.ResponseWriter, r *http.Request, room string) {
 	h.allowCORS(w, r)
 	if r.Method == http.MethodOptions {
@@ -316,6 +329,7 @@ func (h *HTTPHandlers) adminOK(r *http.Request) bool {
 	return false
 }
 
+// jwtAdmin 验证 HMAC JWT 并判断是否具备管理员权限（role=admin 或 admin=true/1）。
 func jwtAdmin(r *http.Request, secret string) bool {
 	auth := r.Header.Get("Authorization")
 	if !strings.HasPrefix(strings.ToLower(auth), "bearer ") {
