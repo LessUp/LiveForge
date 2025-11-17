@@ -1,0 +1,126 @@
+name: Performance Issue
+description: Report a performance problem
+title: '[Performance]: '
+labels: ['performance']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a performance issue! Please fill out the sections below to help us identify and fix the problem.
+  
+  - type: textarea
+    id: description
+    attributes:
+      label: Performance Issue Description
+      description: A clear and concise description of the performance issue
+      placeholder: Describe the performance problem...
+    validations:
+      required: true
+  
+  - type: textarea
+    id: current-behavior
+    attributes:
+      label: Current Behavior
+      description: Describe the current performance behavior
+      placeholder: |
+        - Response time: X seconds
+        - CPU usage: X%
+        - Memory usage: X MB
+        - Concurrent users: X
+    validations:
+      required: true
+  
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected Behavior
+      description: Describe what performance you expect
+      placeholder: |
+        - Expected response time: X seconds
+        - Expected CPU usage: X%
+        - Expected memory usage: X MB
+    validations:
+      required: true
+  
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to Reproduce
+      description: Steps to reproduce the performance issue
+      placeholder: |
+        1. Start server with X concurrent streams
+        2. Monitor resource usage
+        3. Observe performance degradation after X minutes
+    validations:
+      required: true
+  
+  - type: input
+    id: load
+    attributes:
+      label: Load Details
+      description: What load are you testing under?
+      placeholder: e.g., 100 concurrent WebRTC streams, 1000 API requests/second
+  
+  - type: input
+    id: hardware
+    attributes:
+      label: Hardware Details
+      description: What hardware are you running on?
+      placeholder: e.g., 4 CPU cores, 8GB RAM, SSD storage
+  
+  - type: textarea
+    id: configuration
+    attributes:
+      label: Configuration
+      description: Please share relevant configuration details
+      placeholder: |
+        ```yaml
+        # Your configuration here
+        ```
+      render: yaml
+  
+  - type: textarea
+    id: metrics
+    attributes:
+      label: Metrics/Monitoring Data
+      description: Share any relevant metrics or monitoring data
+      placeholder: |
+        - Prometheus metrics
+        - Grafana dashboards
+        - Application logs
+        - System metrics
+      render: text
+  
+  - type: textarea
+    id: profiling
+    attributes:
+      label: Profiling Data
+      description: If you have CPU/memory profiling data, please share it
+      placeholder: |
+        - CPU profile
+        - Memory profile
+        - Goroutine dump
+        - Heap analysis
+  
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      description: Which component is experiencing the performance issue?
+      options:
+        - WebRTC/SFU
+        - API
+        - Authentication
+        - Media Processing
+        - Network
+        - Database
+        - Other
+    validations:
+      required: true
+  
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Add any other context about the performance issue here
+      placeholder: Any additional information...
