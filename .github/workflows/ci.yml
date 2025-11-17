@@ -1,0 +1,391 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  release:
+    types: [ published ]
+
+env:
+  GO_VERSION: '1.21'
+  DOCKER_REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  lint:
+    name: Lint and Format Check
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Install golangci-lint
+      run: |
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v1.54.2
+
+    - name: Run golangci-lint
+      run: golangci-lint run ./...
+
+    - name: Run go fmt
+      run: |
+        if [ "$(gofmt -s -l . | wc -l)" -gt 0 ]; then
+          echo "Code is not formatted. Please run 'go fmt ./...'"
+          gofmt -s -l .
+          exit 1
+        fi
+
+    - name: Run go vet
+      run: go vet ./...
+
+  security:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Install gosec
+      run: go install github.com/securecodewarrior/gosec/v2/cmd/gosec@latest
+
+    - name: Run gosec
+      run: gosec -fmt=json -out=security-report.json ./...
+
+    - name: Upload security report
+      uses: actions/upload-artifact@v3
+      if: always()
+      with:
+        name: security-report
+        path: security-report.json
+
+  test:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: ['1.21', '1.22']
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ matrix.go-version }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run unit tests
+      run: go test -v -race -coverprofile=coverage-unit.out ./internal/...
+
+    - name: Generate coverage report
+      run: |
+        go install github.com/axw/gocov/gocov@latest
+        go install github.com/AlekSi/gocov-xml@latest
+        gocov convert coverage-unit.out | gocov-xml > coverage-unit.xml
+
+    - name: Upload coverage reports
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-reports-${{ matrix.go-version }}
+        path: |
+          coverage-unit.out
+          coverage-unit.xml
+
+  integration-test:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: [lint, test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run integration tests
+      run: go test -v -race -tags=integration ./test/integration/...
+
+  performance-test:
+    name: Performance Tests
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run performance tests
+      run: go test -v -bench=. -benchmem -tags=performance ./test/performance/...
+
+    - name: Run load test
+      run: |
+        go build -o load-tester ./test/load/
+        ./load-tester -duration=30s -concurrent=50
+
+  security-test:
+    name: Security Tests
+    runs-on: ubuntu-latest
+    needs: [integration-test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Install dependencies
+      run: go mod download
+
+    - name: Run security tests
+      run: go test -v -tags=security ./test/security/...
+
+  build:
+    name: Build Application
+    runs-on: ubuntu-latest
+    needs: [test, integration-test, security-test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Build application
+      run: |
+        go mod download
+        go build -o bin/live-webrtc-go ./cmd/server
+
+    - name: Test build
+      run: |
+        chmod +x bin/live-webrtc-go
+        ./bin/live-webrtc-go --help || true
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: binary-linux-amd64
+        path: bin/live-webrtc-go
+
+  docker-build:
+    name: Docker Build and Push
+    runs-on: ubuntu-latest
+    needs: [build, performance-test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.DOCKER_REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.DOCKER_REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+  coverage-report:
+    name: Coverage Report
+    runs-on: ubuntu-latest
+    needs: [test]
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Download coverage reports
+      uses: actions/download-artifact@v3
+      with:
+        name: coverage-reports-${{ env.GO_VERSION }}
+
+    - name: Generate coverage report
+      run: |
+        go install github.com/matm/gocov-html@latest
+        gocov-html coverage-unit.out > coverage-report.html
+
+    - name: Upload coverage report
+      uses: actions/upload-artifact@v3
+      with:
+        name: coverage-report
+        path: coverage-report.html
+
+    - name: Comment coverage on PR
+      if: github.event_name == 'pull_request'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const fs = require('fs');
+          const coverage = fs.readFileSync('coverage-unit.xml', 'utf8');
+          // Parse coverage and comment on PR
+          github.rest.issues.createComment({
+            issue_number: context.issue.number,
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            body: `## Coverage Report\n\nCoverage analysis completed. Please check the detailed report in the artifacts.`
+          });
+
+  release:
+    name: Release
+    runs-on: ubuntu-latest
+    needs: [docker-build, coverage-report]
+    if: github.event_name == 'release' && github.event.action == 'published'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Build release binaries
+      run: |
+        # Build for multiple platforms
+        GOOS=linux GOARCH=amd64 go build -o bin/live-webrtc-go-linux-amd64 ./cmd/server
+        GOOS=linux GOARCH=arm64 go build -o bin/live-webrtc-go-linux-arm64 ./cmd/server
+        GOOS=darwin GOARCH=amd64 go build -o bin/live-webrtc-go-darwin-amd64 ./cmd/server
+        GOOS=darwin GOARCH=arm64 go build -o bin/live-webrtc-go-darwin-arm64 ./cmd/server
+        GOOS=windows GOARCH=amd64 go build -o bin/live-webrtc-go-windows-amd64.exe ./cmd/server
+
+    - name: Upload release assets
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ github.event.release.upload_url }}
+        asset_path: ./bin/
+        asset_name: binaries
+        asset_content_type: application/zip
+
+  notify:
+    name: Notify Results
+    runs-on: ubuntu-latest
+    needs: [test, integration-test, performance-test, security-test, build]
+    if: always()
+    
+    steps:
+    - name: Notify success
+      if: ${{ needs.test.result == 'success' && needs.integration-test.result == 'success' && needs.performance-test.result == 'success' && needs.security-test.result == 'success' && needs.build.result == 'success' }}
+      run: |
+        echo "✅ All tests passed successfully!"
+        echo "Build is ready for deployment."
+
+    - name: Notify failure
+      if: ${{ needs.test.result == 'failure' || needs.integration-test.result == 'failure' || needs.performance-test.result == 'failure' || needs.security-test.result == 'failure' || needs.build.result == 'failure' }}
+      run: |
+        echo "❌ Some tests failed!"
+        echo "Please check the detailed logs and fix the issues before deployment."
